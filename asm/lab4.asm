@@ -7,40 +7,31 @@ SYS_OPEN   equ 5
 SYS_CLOSE  equ 6
 SYS_CREATE equ 8
 SYS_TIME equ 13
-RWRWRW equ 666o
-USERNAME_LEN equ 32 ; 32 is max username lenght in linux [useradd man]
-TIMESTR_LEN equ 20 ; result length
+USERNAME_lenght equ 40
+TIMESTR_lenght equ 20
 
-;;
-segment .rodata ; for constant data
+segment .data
+message1       db "Пожалуйста, введите ваше имя:", 0xA,0xD
+lenght1       equ $- message1
+
+message2       db "Пользователю "
+lenght2       equ $- message2
+
+message3       db " разрешены действия в системе"
+lenght3       equ $- message3
+
+newline         db 0xA,0xD
+lenghtnewline      equ $- newline
+file      db  "file.txt", 0
+
 dot        db "."
 colon      db ":"
 space      db " "
 
-msg1       db "Пожалуйста, введите ваше имя:", 0xA,0xD
-len1       equ $- msg1
-
-msg2       db "Пользователю "
-len2       equ $- msg2
-
-msg3       db " разрешены действия в системе"
-len3       equ $- msg3
-
-endl         db 0xA,0xD
-lendl      equ $- endl
-outputFile      db  "file.txt", 0
-;;
-
-;;
-segment .bss ; used wariables
-time_str resb TIMESTR_LEN;
-username    resb USERNAME_LEN ; 32 is max username lenght in linux [man useradd]
+segment .bss
 ticks   resb 4
 time    resb 4
 date    resb 4
-
-fd      resb 4 ; file descriptor 
-
 sec     resb 4
 min     resb 4
 hour    resb 4
@@ -49,137 +40,41 @@ days    resb 4
 month   resb 4
 year    resb 4
 
-res resb 4
+time_str resb TIMESTR_lenght
+username resb USERNAME_lenght
+
+file_desc resb 4 
 
 termios resb 36
 
-ICANON  equ 1<<1 ;;
-ECHO    equ 1<<3 ;;
-;;
+ICANON  equ 1<<1
+ECHO    equ 1<<3
 
 
 
 section .text
-    global _start ; GNU ld compatability
+    global _start
 
 _start:
-; Prologue
+; prep
     mov rbp, rsp 
 
-; I/O work
-    mov eax, SYS_WRITE ; printing "Пожалуйста, введите ваше имя:"
-    mov ebx, STDOUT
-    mov ecx, msg1
-    mov edx, len1
-    int 0x80
-
-    mov eax, SYS_READ  ; reading username
-    mov ebx, STDIN
-    mov ecx, username
-    mov edx, USERNAME_LEN
-    int 0x80
-    
-    call removeZeroTail ; cleaning username
-
-    mov eax, SYS_WRITE  ; printing "Пользователю "
-    mov ebx, STDOUT
-    mov ecx, msg2
-    mov edx, len2
-    int 0x80
-
-    mov eax, SYS_WRITE ; printing username
-    mov ebx, STDOUT
-    mov ecx, username
-    mov edx, USERNAME_LEN
-    int 0x80
-
-    mov eax, SYS_WRITE  ; printing " разрешены действия в системе"
-    mov ebx, STDOUT
-    mov ecx, msg3
-    mov edx, len3
-    int 0x80
-
-    mov eax, SYS_WRITE  ; printing "\n"
-    mov ebx, STDOUT
-    mov ecx, endl
-    mov edx, lendl
-    int 0x80
-
-; Creating file outputFile.txt
-    mov eax, SYS_CREATE
-    mov ebx, outputFile
-    mov ecx, RWRWRW       ; chmod 666 for right privileges
-    int 0x80
-    mov [fd], eax       ; Сохранение дескриптора файла
-
-; get time
-    call getTime
-
-; leap year calculation
-    call leap_year_calc
- 
-; conversion
-    call conv_date_to_str
-    call conv_time_to_str
-
-; writing to file
-    call print_date
-    call print_time
-
-; closing write descriptor
-    mov eax, SYS_CLOSE
-    mov ebx, [fd]
-    int 0x80
-
-; opening file for reading
-    mov eax, SYS_OPEN
-    mov ebx, outputFile
-    mov ecx, 2
-    mov edx, RWRWRW     ; chmod 666
-    int  0x80
-
-; reading from file 
-    mov eax, SYS_READ
-    mov ebx, [fd]
-    mov ecx, time_str
-    mov edx, 32
-    int 0x80
-
-; printing time
     mov eax, SYS_WRITE
     mov ebx, STDOUT
-    mov ecx, time_str
-    mov edx, TIMESTR_LEN
-    int 0x80
+    mov ecx, message1
+    mov edx, lenght1
+    int 80h
 
-; closing file descriptor
-    mov eax, SYS_CLOSE
-    mov ebx, [fd]
-    int 0x80
-
-
-; listening for the esc key 
-    call canonical_off
-    call echo_off
-.esc:
     mov eax, SYS_READ
     mov ebx, STDIN
     mov ecx, username
-    mov edx, 1
-    int 0x80
-    movzx eax, byte [username]
-    cmp eax, 0x1B
-    jne .esc
-
-  jmp exit
-;; end of program
-
-
-; Remove endl symbol
-removeZeroTail:  
+    mov edx, USERNAME_lenght
+    int 80h
+    
+; trim username
     xor eax, eax
     mov ebx, username
- .begin:
+    .begin:
     movzx eax, byte [ebx]
     cmp eax, '0'
     JB .done
@@ -187,15 +82,87 @@ removeZeroTail:
     JA .done
     INC ebx
     jmp .begin
- .done:
+    .done:
     mov byte [ebx], 0
-    ret
+
+; print messages
+    mov eax, SYS_WRITE
+    mov ebx, STDOUT
+    mov ecx, message2
+    mov edx, lenght2
+    int 80h
+
+    mov eax, SYS_WRITE
+    mov ebx, STDOUT
+    mov ecx, username
+    mov edx, USERNAME_lenght
+    int 80h
+
+    mov eax, SYS_WRITE
+    mov ebx, STDOUT
+    mov ecx, message3
+    mov edx, lenght3
+    int 80h
+
+    mov eax, SYS_WRITE
+    mov ebx, STDOUT
+    mov ecx, newline
+    mov edx, lenghtnewline
+    int 80h
+
+; create file.txt
+    mov eax, SYS_CREATE
+    mov ebx, file
+    mov ecx, 666o       ; chmod 666
+    int 80h
+    mov [file_desc], eax
+
+    call Timer
+    call check_case_leap_year
+    call convert_data_to_str
+    call writeData
+
+    mov eax, SYS_CLOSE
+    mov ebx, [file_desc]
+    int 80h
+
+    mov eax, SYS_OPEN
+    mov ebx, file
+    mov ecx, 2
+    mov edx, 666o     ; chmod 666
+    int  80h
+
+    mov eax, SYS_READ
+    mov ebx, [file_desc]
+    mov ecx, time_str
+    mov edx, 32
+    int 80h
+
+    mov eax, SYS_WRITE
+    mov ebx, STDOUT
+    mov ecx, time_str
+    mov edx, TIMESTR_lenght
+    int 80h
+
+    mov eax, SYS_CLOSE
+    mov ebx, [file_desc]
+    int 80h
+
+    call input_off
+
+.escape_callback:
+    mov eax, SYS_READ
+    mov ebx, STDIN
+    mov ecx, username
+    mov edx, 1
+    int 80h
+    movzx eax, byte [username]
+    cmp eax, 0x1B
+    jne .escape_callback
+    jmp exit
 
 
-; Get days in month
-; Leap year February is checked in leap_year_calc
-days_in_this_month:
-                    ; check if we have more than 28 days
+day_counter:
     mov rax, rdi
     mov ah, al
     shr ah, 3        
@@ -215,82 +182,63 @@ days_in_this_month:
     shr ax, 8       ; shift result in al
     ret             ; return number of days in al
 
-
-
-canonical_off:
-    call read_stdin_termios
-    and dword [termios+12], ~ICANON ; clear canonical bit
-
-    call write_stdin_termios
-    ret
-
-echo_off:
-    call read_stdin_termios
-
-    and dword [termios+12], ~ECHO ; clear echo bit
-
-    call write_stdin_termios
-    ret
-
-canonical_on:
-    call read_stdin_termios
-
-    or dword [termios+12], ICANON ; set canonical bit
-
-    call write_stdin_termios
-    ret
-
-echo_on:
-    call read_stdin_termios
-
-    or dword [termios+12], ECHO ; set echo bit
-
-    call write_stdin_termios
-    ret
-
-read_stdin_termios:
+r_termios:
     push rbx
-
     mov eax, 36h
     mov ebx, STDIN
     mov ecx, 5401h
     mov edx, termios
-    int 0x80
-
+    int 80h
     pop rbx
     ret
 
-write_stdin_termios:
+w_termios:
     push rbx
-
     mov eax, 36h
     mov ebx, STDIN
     mov ecx, 5402h
     mov edx, termios
-    int 0x80
-
+    int 80h
     pop rbx
+    ret
+
+input_off:
+    call r_termios
+    and dword [termios+12], ~ICANON ; clear canonical bit
+    call w_termios
+
+    call r_termios
+    and dword [termios+12], ~ECHO ; clear echo bit
+    call w_termios
+    ret
+
+input_on:
+    call r_termios
+    or dword [termios+12], ICANON ; set canonical bit
+    call w_termios
+    
+    call r_termios
+    or dword [termios+12], ECHO ; set echo bit
+    call w_termios
     ret
 
 ; SYS_EXIT
 exit:    
-    call canonical_on
-    call echo_on
-; printing the endl symbols
+    call input_on
+
     mov eax, SYS_WRITE
     mov ebx, STDOUT
-    mov ecx, endl
-    mov edx, lendl
-    int 0x80
+    mov ecx, newline
+    mov edx, lenghtnewline
+    int 80h
     mov eax, SYS_EXIT
     xor ebx, ebx
-    int 0x80
+    int 80h
 
-getTime:
-; Getting time and date
+Timer:
     xor ebx, ebx        ; cleaning reg EBX
     mov eax, SYS_TIME   ; SYS_TIME
-    int 0x80
+    int 80h
 
     xor ebx, ebx        ; seconds
     xor edx, edx
@@ -325,78 +273,61 @@ getTime:
     mov r9d, 1970 ; Store current year
     ret
 
-print_time:
-    mov eax, SYS_WRITE
-    mov ebx, [fd]
-    lea ecx, [hour+2]
-    mov edx, 2
-    int 0x80
+check_case_leap_year:
+.cycle1:
+    mov edi, r9d ; prep to call
+    call check_leap_year
 
-    mov eax, SYS_WRITE
-    mov ebx, [fd]
-    mov ecx, colon   
-    mov edx, 1
-    int 0x80
+    test eax, eax 
+    jnz .leap
+    mov r10d, 0
+    sub r8d, 365
+    inc r9d
+    jmp .cycle1d
+.leap:
+    mov r10d, 1
+    sub r8d, 366
+    inc r9d
+ .cycle1d:
+    test r10d, r10d
+    jz .nl
+    cmp r8d, 366 ;
+    jmp .cycle1e
+    .nl:
+    cmp r8d, 365
+.cycle1e:
+    jg .cycle1
 
-    mov eax, SYS_WRITE
-    mov ebx, [fd]
-    lea ecx, [min+2]
-    mov edx, 2
-    int 0x80
+    mov [year], r9d
 
-    mov eax, SYS_WRITE
-    mov ebx, [fd]
-    mov ecx, colon   
-    mov edx, 1
-    int 0x80
+    xor r9d, r9d ; zero counter
 
-    mov eax, SYS_WRITE
-    mov ebx, [fd]
-    lea ecx, [sec+2]
-    mov edx, 2
-    int 0x80
+.cycle2:
+    ; precondition: r8d - days in year
+    inc r9d ; r9d = month
+    cmp r9d, 2
+    jne .notFebruary
+    mov edi, [year]
+    call check_leap_year
+    test eax, eax 
+    jz .notFebruary
+    mov ebx, 29 ; Leap year and February means 29
+    jmp .main
+.notFebruary:
+    mov edi, r9d
+    call day_counter
+    movzx ebx, al
+.main:
+    sub r8d, ebx
+    cmp r8d, 0
+    jg .cycle2
+    add r8d, ebx
+
+    mov [month], r9d
+    mov [day], r8d
     ret
-
-print_date:
-    mov eax, SYS_WRITE
-    mov ebx, [fd]
-    lea ecx, [day+2]
-    mov edx, 2
-    int 0x80
-
-    mov eax, SYS_WRITE
-    mov ebx, [fd]
-    mov ecx, dot
-    mov edx, 1
-    int 0x80
-
-    mov eax, SYS_WRITE
-    mov ebx, [fd]
-    lea ecx, [month+2]
-    mov edx, 2
-    int 0x80
-
-    mov eax, SYS_WRITE
-    mov ebx, [fd]
-    mov ecx, dot
-    mov edx, 1
-    int 0x80
-
-    mov eax, SYS_WRITE
-    mov ebx, [fd]
-    mov ecx, year
-    mov edx, 4
-    int 0x80
-
-    mov eax, SYS_WRITE
-    mov ebx, [fd]
-    mov ecx, space
-    mov edx, 1
-    int 0x80
-    ret
-
-; Convert int to string
-stoi:
+    
+int_conv:
     mov eax,[esi]
     mov byte [esi], 0
     add esi, ebx
@@ -422,91 +353,34 @@ stoi:
     jmp .test
     ret
 
-conv_date_to_str:
+convert_data_to_str:
     mov ebx, 4
     lea esi,[year]
-    call stoi
+    call int_conv
 
     mov ebx, 4
     lea esi,[day]
-    call stoi
+    call int_conv
 
     mov ebx, 4
     lea esi,[month]
-    call stoi
-    ret
+    call int_conv
 
-conv_time_to_str:
     mov ebx, 4
     lea esi,[hour]
-    call stoi
+    call int_conv
 
     mov ebx, 4
     lea esi,[min]
-    call stoi
+    call int_conv
 
     mov ebx, 4
     lea esi,[sec]
-    call stoi
+    call int_conv
     ret
 
-leap_year_calc:
-.loop1:
-    mov edi, r9d ; prep to call
-    call leap_year
-
-    test eax, eax 
-    jnz .leap
-    mov r10d, 0
-    sub r8d, 365
-    inc r9d
-    jmp .loop1done
- .leap:
-    mov r10d, 1
-    sub r8d, 366
-    inc r9d
- .loop1done:
-    test r10d, r10d
-    jz .nl
-    cmp r8d, 366 ;
-    jmp .loop1end
-    .nl:
-    cmp r8d, 365
- .loop1end:
-    jg .loop1
-
-    mov [year], r9d
-
-    xor r9d, r9d ; zero counter
-
- .loop2:
-    ; precondition: r8d - days in year
-    inc r9d ; r9d = month
-    cmp r9d, 2
-    jne .notFebruary
-    mov edi, [year]
-    call leap_year
-    test eax, eax 
-    jz .notFebruary
-    mov ebx, 29 ; Leap year and February means 29
-    jmp .mainline
-.notFebruary:
-    mov edi, r9d
-    call days_in_this_month
-    movzx ebx, al
-.mainline:
-    sub r8d, ebx
-    cmp r8d, 0
-    jg .loop2
-    add r8d, ebx
-
-    mov [month], r9d
-    mov [day], r8d
-    ret
-
-; Check if current year is leap
-leap_year:
-    ; precondition: rdi = year
+check_leap_year:
+    ; req: rdi = year
 
     ; divisor of 4
     mov rcx, rdi
@@ -535,3 +409,79 @@ leap_year:
     not rax       ; ret rax = true otherwise
  .done:
     ret
+
+writeData:
+    ;time
+    mov eax, SYS_WRITE
+    mov ebx, [file_desc]
+    lea ecx, [hour+2]
+    mov edx, 2
+    int 80h
+
+    mov eax, SYS_WRITE
+    mov ebx, [file_desc]
+    mov ecx, colon   
+    mov edx, 1
+    int 80h
+
+    mov eax, SYS_WRITE
+    mov ebx, [file_desc]
+    lea ecx, [min+2]
+    mov edx, 2
+    int 80h
+
+    mov eax, SYS_WRITE
+    mov ebx, [file_desc]
+    mov ecx, colon   
+    mov edx, 1
+    int 80h
+
+    mov eax, SYS_WRITE
+    mov ebx, [file_desc]
+    lea ecx, [sec+2]
+    mov edx, 2
+    int 80h
+
+    mov eax, SYS_WRITE
+    mov ebx, [file_desc]
+    mov ecx, space
+    mov edx, 1 
+    int 80h
+    ;date
+    mov eax, SYS_WRITE
+    mov ebx, [file_desc]
+    lea ecx, [day+2]
+    mov edx, 2
+    int 80h
+
+    mov eax, SYS_WRITE
+    mov ebx, [file_desc]
+    mov ecx, dot
+    mov edx, 1
+    int 80h
+
+    mov eax, SYS_WRITE
+    mov ebx, [file_desc]
+    lea ecx, [month+2]
+    mov edx, 2
+    int 80h
+
+    mov eax, SYS_WRITE
+    mov ebx, [file_desc]
+    mov ecx, dot
+    mov edx, 1
+    int 80h
+
+    mov eax, SYS_WRITE
+    mov ebx, [file_desc]
+    mov ecx, year
+    mov edx, 4
+    int 80h
+
+    mov eax, SYS_WRITE
+    mov ebx, [file_desc]
+    mov ecx, space
+    mov edx, 1
+    int 80h
+    ret
+    
